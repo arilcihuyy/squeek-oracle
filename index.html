@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Squeek Oracle — calls for Squeek or Sleep</title>
+<meta name="description" content="Reads Squeekchain's public API and the hamster's own record to suggest a call for the next Squeek or Sleep round.">
+<style>
+  :root{
+    --bg:#0b0b0f; --panel:#121218; --line:#232330; --ink:#ecebf2; --dim:#9a99ab;
+    --gold:#ffc048; --blue:#5ab7dd; --green:#5fd49a; --red:#e2685f;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5}
+  body{background-image:radial-gradient(rgba(255,255,255,.055) 1px,transparent 1px);background-size:22px 22px}
+  .wrap{max-width:960px;margin:0 auto;padding:28px 20px 64px}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:26px}
+  .mark{width:34px;height:34px;border:1px solid var(--line);border-radius:9px;display:grid;place-items:center;color:var(--gold);font-family:var(--mono);font-size:15px}
+  h1{font-size:17px;margin:0;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
+  .sub{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.06em}
+  .pill{margin-left:auto;font-family:var(--mono);font-size:11px;padding:6px 11px;border:1px solid var(--line);border-radius:999px;display:flex;align-items:center;gap:7px;white-space:nowrap}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+  .pill[data-state=running] .dot{background:var(--green);box-shadow:0 0 0 4px rgba(95,212,154,.14)}
+  .pill[data-state=napping] .dot{background:var(--blue)}
+  .pill[data-state=offline] .dot{background:var(--red)}
+
+  .call{border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,#15151d,#101016);padding:26px;margin-bottom:18px}
+  .label{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+  .verdict{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin:10px 0 6px}
+  .verdict strong{font-size:44px;line-height:1.05;letter-spacing:-.02em;text-transform:uppercase}
+  .verdict strong[data-o=nap]{color:var(--blue)}
+  .verdict strong[data-o=jog]{color:var(--gold)}
+  .verdict strong[data-o=zoomies]{color:var(--green)}
+  .clock{font-family:var(--mono);font-size:26px;color:var(--ink)}
+  .why{color:var(--dim);font-size:14px;max-width:62ch;margin:0}
+  .hint{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:22px}
+  .stat{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--panel)}
+  .stat b{display:block;font-family:var(--mono);font-size:20px;font-weight:500;letter-spacing:-.01em}
+  .stat span{font-size:11.5px;color:var(--dim)}
+  .bar{height:4px;border-radius:99px;background:#1e1e28;margin-top:10px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--gold)}
+
+  h2{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);font-weight:600;margin:30px 0 12px}
+  .strip{display:grid;grid-template-columns:repeat(28,1fr);gap:3px}
+  .strip div{aspect-ratio:1;border-radius:3px;background:#191922}
+  .strip div[data-on="1"]{background:rgba(255,192,72,.22)}
+  .strip div[data-on="2"]{background:rgba(255,192,72,.42)}
+  .strip div[data-on="3"]{background:rgba(255,192,72,.62)}
+  .strip div[data-on="4"]{background:rgba(255,192,72,.82)}
+  .strip div[data-on="5"]{background:var(--gold)}
+  .legend{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--dim);margin-top:8px}
+
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px}
+  th,td{text-align:right;padding:8px;border-bottom:1px solid var(--line)}
+  th{color:var(--dim);font-weight:500;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  th:first-child,td:first-child{text-align:left}
+  tr[data-now="1"] td{color:var(--gold)}
+  .scroll{border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:auto}
+  footer{margin-top:34px;border-top:1px solid var(--line);padding-top:16px;font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;flex-wrap:wrap;gap:6px 18px}
+  a{color:var(--blue);text-decoration:none}
+  a:hover{text-decoration:underline}
+  @media(max-width:560px){
+    .verdict strong{font-size:34px}
+    .clock{font-size:20px}
+    .wrap{padding:20px 14px 48px}
+    .strip{grid-template-columns:repeat(14,1fr)}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="mark">SQ</div>
+    <div>
+      <h1>Squeek Oracle</h1>
+      <div class="sub">next-round calls · read from the wheel</div>
+    </div>
+    <div class="pill" id="pill" data-state="offline"><span class="dot"></span><span id="pillText">connecting</span></div>
+  </header>
+
+  <section class="call" aria-live="polite">
+    <div class="label">Suggested call · next round</div>
+    <div class="verdict">
+      <strong id="outcome" data-o="nap">—</strong>
+      <span class="clock" id="countdown">--:--</span>
+    </div>
+    <p class="why" id="why">Waiting for the wheel.</p>
+    <div class="hint" id="hint"></div>
+  </section>
+
+  <div class="grid">
+    <div class="stat"><b id="blockHeight">—</b><span>Squeek block height</span><div class="bar"><i id="blockBar" style="width:0%"></i></div></div>
+    <div class="stat"><b id="difficulty">—</b><span>difficulty · work / 1k blocks</span></div>
+    <div class="stat"><b id="work">—</b><span>cumulative work</span></div>
+    <div class="stat"><b id="sqk">—</b><span>SQK minted <span id="sqkPct"></span></span></div>
+  </div>
+
+  <h2>The wheel, last seven days · one cell per six hours</h2>
+  <div class="strip" id="strip" aria-label="Activity per six-hour block over the last seven days"></div>
+  <div class="legend"><span id="stripFrom">—</span><span>brighter = more rounds with work</span><span id="stripTo">—</span></div>
+
+  <h2>Round record by time of day · seven days</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>UTC block</th><th>rounds</th><th>with work</th><th>work</th><th>share</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <h2>Today, hour by hour</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>UTC hour</th><th>settlements</th><th>with work</th><th>work</th></tr></thead>
+      <tbody id="hourRows"></tbody>
+    </table>
+  </div>
+
+  <footer>
+    <span>unofficial · not affiliated with Squeekchain</span>
+    <span>built by <a href="https://x.com/0xAril27">@0xAril27</a></span>
+    <span>source <a href="https://api.squeekchain.com/v1/core">api.squeekchain.com</a></span>
+    <span id="stamp">—</span>
+  </footer>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const API = "https://api.squeekchain.com";
+  const ROUND_MS = 600000;                  // 600 s rounds, aligned to :00 / :10 / :20 UTC
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => Number(n).toLocaleString("en-US");
+  const pad = (n) => String(n).padStart(2, "0");
+  const clock = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return pad(Math.floor(s / 60)) + ":" + pad(s % 60);
+  };
+  const hourOf = (iso) => Number(new Date(iso).getUTCHours());
+
+  const state = { rpm: 0, fresh: false, blocks: [], hours: [], updated: null, week: null };
+
+  async function getJSON(path) {
+    const r = await fetch(API + path, { cache: "no-store" });
+    if (!r.ok) throw new Error(path + " " + r.status);
+    return r.json();
+  }
+
+  // ---------- live wheel ----------
+  async function loadWheel() {
+    try {
+      const j = await getJSON("/v1/status");
+      const m = j.measurement || {};
+      const age = (Date.now() - Date.parse(m.observedAt)) / 1000;
+      state.fresh = m.freshness === "online" && age <= (m.staleAfterSeconds || 120);
+      state.rpm = typeof m.rpmMilli === "number" ? m.rpmMilli / 1000 : (m.rpm || 0);
+      const s = !state.fresh ? "offline" : (m.coreStatus === "ACTIVE" || state.rpm > 0) ? "running" : "napping";
+      $("pill").dataset.state = s;
+      $("pillText").textContent = s === "running" ? "wheel running · " + state.rpm.toFixed(0) + " rpm"
+        : s === "napping" ? "hamster napping" : "feed offline";
+    } catch (e) {
+      $("pill").dataset.state = "offline";
+      $("pillText").textContent = "feed offline";
+      state.fresh = false; state.rpm = 0;
+    }
+    render();
+  }
+
+  // ---------- chain constants ----------
+  async function loadChain() {
+    try {
+      const c = await getJSON("/v1/core");
+      const core = c.core || {};
+      $("blockHeight").textContent = fmt(core.blockHeight || 0);
+      const pct = Math.max(0, Math.min(100, ((core.blockProgress || 0) / 1e9) * 100));
+      $("blockBar").style.width = pct.toFixed(1) + "%";
+      $("difficulty").textContent = fmt(core.workPerThousandBlocks || 0);
+      $("work").textContent = fmt(core.cumulativeWork || 0);
+    } catch (e) { /* keep previous */ }
+    try {
+      const e = await getJSON("/v1/economy/state");
+      const s = e.supply || {};
+      const minted = Number(s.totalMintedBaseUnits || 0) / 1e18;
+      const cap = Number(s.capBaseUnits || 1) / 1e18;
+      $("sqk").textContent = (minted / 1e6).toFixed(2) + "M";
+      $("sqkPct").textContent = "· " + ((minted / cap) * 100).toFixed(1) + "% of cap";
+    } catch (e) { /* keep previous */ }
+  }
+
+  // ---------- history ----------
+  async function loadHistory() {
+    const out = {};
+    try {
+      const w = await getJSON("/v1/settlements?range=7d");
+      state.week = w; state.blocks = w.buckets || [];
+      state.updated = w.generatedAt ? new Date(w.generatedAt) : new Date();
+      out.week = true;
+    } catch (e) { out.week = false; }
+    try {
+      const d = await getJSON("/v1/settlements?range=24h");
+      state.hours = d.buckets || [];
+      out.day = true;
+    } catch (e) { out.day = false; }
+    render();
+    return out;
+  }
+
+  // Aggregate the seven-day six-hour buckets into four times of day.
+  function timeOfDay() {
+    const acc = [0, 1, 2, 3].map(() => ({ rounds: 0, worked: 0, work: 0 }));
+    for (const b of state.blocks) {
+      const i = Math.floor(hourOf(b.startAt) / 6);
+      acc[i].rounds += Number(b.settlementCount || 0);
+      acc[i].worked += Number(b.activeRoundCount || 0);
+      acc[i].work += Number(b.workAdded || 0);
+    }
+    return acc;
+  }
+
+  function decide() {
+    if (!state.fresh) return { o: "nap", why: "The feed is stale, so the wheel counts as still. A stopped round settles as a nap." };
+    if (state.rpm >= 12) return { o: "zoomies", why: "The wheel is turning at " + state.rpm.toFixed(0) + " rpm. That pace clears the 500-pass zoomies line inside one round." };
+    if (state.rpm > 0) return { o: "jog", why: "The wheel is turning slowly (" + state.rpm.toFixed(0) + " rpm), so the round should land above one pass but under the zoomies line." };
+    return { o: "nap", why: "The wheel is still. Squeektoshi sleeps far more hours than he runs, and a stopped round settles as a nap." };
+  }
+
+  const nextRoundAt = () => Math.ceil(Date.now() / ROUND_MS) * ROUND_MS;
+
+  function render() {
+    const d = decide();
+    const out = $("outcome");
+    out.textContent = d.o; out.dataset.o = d.o;
+    $("why").textContent = d.why;
+
+    // seven-day strip, chronological, one cell per six hours
+    const strip = $("strip");
+    if (strip.childElementCount !== state.blocks.length && state.blocks.length) {
+      strip.style.gridTemplateColumns = "repeat(" + state.blocks.length + ",1fr)";
+      strip.replaceChildren(...state.blocks.map(() => document.createElement("div")));
+    }
+    const cells = strip.children;
+    state.blocks.forEach((b, i) => {
+      const rounds = Number(b.settlementCount || 0);
+      const sh = rounds ? Number(b.activeRoundCount || 0) / rounds : 0;
+      const on = sh === 0 ? 0 : Math.min(5, Math.max(1, Math.round(sh * 5)));
+      const c = cells[i];
+      if (!c) return;
+      c.dataset.on = String(on);
+      const t = new Date(b.startAt);
+      c.title = t.toISOString().slice(0, 16).replace("T", " ") + " UTC · " + (sh * 100).toFixed(0) + "% of rounds worked";
+    });
+    if (state.blocks.length) {
+      $("stripFrom").textContent = new Date(state.blocks[0].startAt).toISOString().slice(0, 10);
+      $("stripTo").textContent = new Date(state.blocks[state.blocks.length - 1].endAt).toISOString().slice(0, 10);
+    }
+
+    // times of day
+    const tod = timeOfDay();
+    const nowBlock = Math.floor(new Date().getUTCHours() / 6);
+    $("rows").replaceChildren(...tod.map((a, i) => {
+      const tr = document.createElement("tr");
+      if (i === nowBlock) tr.dataset.now = "1";
+      const add = (t) => { const c = document.createElement("td"); c.textContent = t; tr.append(c); };
+      add(pad(i * 6) + ":00 – " + pad(i * 6 + 6) + ":00");
+      add(fmt(a.rounds));
+      add(fmt(a.worked));
+      add(fmt(a.work));
+      add(a.rounds ? Math.round((a.worked / a.rounds) * 100) + "%" : "—");
+      return tr;
+    }));
+
+    // today, hour by hour
+    const nowHour = new Date().getUTCHours();
+    $("hourRows").replaceChildren(...state.hours.map((b) => {
+      const tr = document.createElement("tr");
+      const h = hourOf(b.startAt);
+      if (h === nowHour) tr.dataset.now = "1";
+      const add = (t) => { const c = document.createElement("td"); c.textContent = t; tr.append(c); };
+      add(pad(h) + ":00");
+      add(fmt(b.settlementCount || 0));
+      add(fmt(b.activeRoundCount || 0));
+      add(fmt(b.workAdded || 0));
+      return tr;
+    }));
+
+    // hint: today's same hour, else this six-hour block of the week
+    const today = state.hours.find((b) => hourOf(b.startAt) === nowHour);
+    const a = tod[nowBlock];
+    if (today && Number(today.settlementCount)) {
+      $("hint").textContent = "Today at " + pad(nowHour) + ":00 UTC: " + fmt(today.activeRoundCount) + " of " + fmt(today.settlementCount)
+        + " settled rounds did work. Over seven days this block runs "
+        + (a.rounds ? Math.round((a.worked / a.rounds) * 100) : 0) + "% of the time. No call is guaranteed — the hamster decides.";
+    } else {
+      $("hint").textContent = "This six-hour block has carried work in " + (a.rounds ? Math.round((a.worked / a.rounds) * 100) : 0)
+        + "% of settled rounds over seven days. No call is guaranteed — the hamster decides.";
+    }
+
+    $("stamp").textContent = state.updated ? "settlements " + state.updated.toISOString().slice(11, 16) + " UTC" : "—";
+  }
+
+  function tick() { $("countdown").textContent = clock(nextRoundAt() - Date.now()); }
+
+  loadChain(); loadHistory(); loadWheel();
+  tick(); setInterval(tick, 1000);
+  setInterval(loadWheel, 15000);
+  setInterval(loadHistory, 120000);
+  setInterval(loadChain, 60000);
+})();
+</script>
+</body>
+</html>
